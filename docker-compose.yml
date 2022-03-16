@@ -1,32 +1,70 @@
 version: "3.4"
 services:
-  vpn:
-    container_name: vpn
-    image: dperson/openvpn-client:latest
+  wireguard:
+    image: linuxserver/wireguard
+    container_name: wireguard
     cap_add:
-      - net_admin # required to modify network interfaces
-    restart: unless-stopped
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
     volumes:
-      - /dev/net:/dev/net:z # tun device
-      - ${ROOT}/config/vpn:/vpn # OpenVPN configuration
-    security_opt:
-      - label:disable
+      - ${ROOT}/config/wireguard:/config
+      - /lib/modules:/lib/modules
     ports:
-      - 8112:8112 # port for deluge web UI to be reachable from local network
-    command: '-f "" -r 192.168.1.0/24' # enable firewall and route local network traffic
+     - 51820:51820/udp
+     - 9091:9091
+     - 51413:51413
+     - 51413:51413/udp
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=0
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 8G
+
+  transmission:
+    image: linuxserver/transmission
+    container_name: transmission
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+    volumes:
+      - /mnt/storage:/downloads # downloads ***downloads=storage***
+      - ${ROOT}/config/transmission:/config # config files
+    network_mode: service:wireguard
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
 
   deluge:
     container_name: deluge
     image: linuxserver/deluge:latest
     restart: unless-stopped
-    network_mode: service:vpn # run on the vpn network
+    network_mode: host
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
+      - PUID=1000 # default user id, defined in .env
+      - PGID=1000 # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
     volumes:
-      - ${ROOT}/downloads:/downloads # downloads folder
+      - /mnt/storage:/downloads # downloads ***downloads=storage***
       - ${ROOT}/config/deluge:/config # config files
+    ports:
+      - 53394:53394
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 8G
 
   jackett:
     container_name: jackett
@@ -34,26 +72,13 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
+      - PUID=1000 # default user id, defined in .env
+      - PGID=1000 # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${ROOT}/downloads/torrent-blackhole:/downloads # place where to put .torrent files for manual download
+      - /mnt/storage:/downloads # to access existing shows
       - ${ROOT}/config/jackett:/config # config files
-
-  nzbget:
-    container_name: nzbget
-    image: linuxserver/nzbget:latest
-    restart: unless-stopped
-    network_mode: host
-    environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
-      - TZ=${TZ} # timezone, defined in .env
-    volumes:
-      - ${ROOT}/downloads:/downloads # download folder
-      - ${ROOT}/config/nzbget:/config # config files
 
   sonarr:
     container_name: sonarr
@@ -61,14 +86,13 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
+      - PUID=1000 # default user id, defined in .env
+      - PGID=1000 # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${ROOT}/config/sonarr:/config # config files
-      - ${ROOT}/complete/tv:/tv # tv shows folder
-      - ${ROOT}/downloads:/downloads # download folder
+      - /mnt/storage:/downloads # to access existing shows
 
   radarr:
     container_name: radarr
@@ -76,26 +100,13 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
+      - PUID=1000 # default user id, defined in .env
+      - PGID=1000 # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${ROOT}/config/radarr:/config # config files
-      - ${ROOT}/complete/movies:/movies # movies folder
-      - ${ROOT}/downloads:/downloads # download folder
-
-  plex-server:
-    container_name: plex-server
-    image: plexinc/pms-docker:latest
-    restart: unless-stopped
-    environment:
-      - TZ=${TZ} # timezone, defined in .env
-    network_mode: host
-    volumes:
-      - ${ROOT}/config/plex/db:/config # plex database
-      - ${ROOT}/config/plex/transcode:/transcode # temp transcoded files
-      - ${ROOT}/complete:/data # media library
+      - /mnt/storage:/downloads # to access existing shows
 
   bazarr:
     container_name: bazarr
@@ -103,11 +114,51 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
+      - PUID=1000 # default user id, defined in .env
+      - PGID=1000 # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
-      - UMASK_SET=022 #optional
+      - UMASK_SET=000 #optional
     volumes:
       - ${ROOT}/config/bazarr:/config # config files
-      - ${ROOT}/complete/movies:/movies # movies folder
-      - ${ROOT}/complete/tv:/tv # tv shows folder
+      - /mnt/storage:/downloads # to access existing shows
+    ports:
+      - 6767:6767
+  
+  filebrowser:
+    container_name: filebrowser
+    hostname: filebrowser
+    restart: always
+    image: filebrowser/filebrowser
+    environment:
+      - PUID=1000 # default user id, defined in .env
+      - PGID=1000 # default group id, defined in .env
+      - TZ=${TZ} # timezone, defined in .env
+    ports:
+      - 8002:80
+    volumes:
+      - /mnt/storage/shared:/files/shared
+      - /mnt/storage/AnimeBytes Music:/files/music
+      - /mnt/storage/Touhou/Touhou lossless music collection:/files/Touhou lossless music collection
+      - /mnt/storage/Touhou Torrents:/files/Touhou Torrents
+      - ${ROOT}/config/filebrowser/database.db:/database.db
+      - ${ROOT}/config/filebrowser/filebrowser.json:/.filebrowser.json
+    restart: unless-stopped
+
+  airsonic:
+    image: lscr.io/linuxserver/airsonic
+    container_name: airsonic
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+    volumes:
+      - ${ROOT}/config/airsonic:/config
+      - /mnt/storage/Touhou:/Touhou
+      - /mnt/storage/Touhou Torrents/ZUN Touhou Official Music Collection:/ZUN
+      - /mnt/storage/Touhou lossless music collection:/Touhou2
+      - /mnt/storage/AnimeBytes Music:/AnimeBytes Music
+      - /mnt/storage/Music:/Music
+    ports:
+      - 4040:4040
+    restart: unless-stopped
+
